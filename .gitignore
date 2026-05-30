@@ -1,0 +1,15 @@
+# Build artifacts
+.build/
+*.app
+*.iconset/
+icon-rounded-1024.png
+
+# macOS
+.DS_Store
+
+# Xcode / SwiftPM cruft
+*.xcodeproj
+*.xcworkspace
+.swiftpm/
+DerivedData/
+make-preview.swift
