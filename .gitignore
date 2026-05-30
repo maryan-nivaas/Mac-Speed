@@ -13,3 +13,4 @@ icon-rounded-1024.png
 .swiftpm/
 DerivedData/
 make-preview.swift
+make-social.swift
