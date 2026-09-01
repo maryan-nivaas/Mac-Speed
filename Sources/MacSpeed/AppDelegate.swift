@@ -1,189 +1,181 @@
 import AppKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var statusItem: NSStatusItem!
-    private let monitor = NetworkMonitor()
-    private var timer: Timer?
-    private var speedTestWC: SpeedTestWindowController?
+/// A self-contained menu bar feature that can be switched on and off at runtime.
+protocol BarModule: AnyObject {
+    var id: String { get }
+    var title: String { get }
+    var moduleDescription: String { get }
+    var symbolName: String { get }
+    func start(manager: AppDelegate)
+    func stop()
+    /// Called when module enablement changes so persistent menus can refresh.
+    func menusChanged()
+}
 
-    private let intervals: [Double] = [1, 2, 5, 10, 30]
-    private let intervalKey = "updateInterval"
-    private let displayModeKey = "displayMode"   // "down" | "up" | "both"
+/// Owns the modules, their order, the shared settings menu, and the Settings window.
+final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+    private(set) var modules: [BarModule] = []
+    /// Module ids, leftmost in the menu bar first. Persisted.
+    @Published private(set) var order: [String] = []
+    private var startedIDs: Set<String> = []
+    private var fallbackItem: NSStatusItem?
+    private var settingsWC: SettingsWindowController?
 
-    // Remember the last rate so we can redraw instantly when the display
-    // mode changes, without waiting for the next timer tick.
-    private var lastDown: Double = 0
-    private var lastUp: Double = 0
-
-    private var interval: Double {
-        get {
-            let stored = UserDefaults.standard.double(forKey: intervalKey)
-            return intervals.contains(stored) ? stored : 1
-        }
-        set { UserDefaults.standard.set(newValue, forKey: intervalKey) }
-    }
-
-    private var displayMode: String {
-        get { UserDefaults.standard.string(forKey: displayModeKey) ?? "both" }
-        set { UserDefaults.standard.set(newValue, forKey: displayModeKey) }
-    }
+    private let orderKey = "module.order"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        render(down: 0, up: 0)
-        buildMenu()
-        _ = monitor.tick()          // prime the first reading
-        startTimer()
+        modules = [MusicModule(), SpeedModule()]
+        // Saved order first, then any modules added since (future features).
+        let saved = UserDefaults.standard.stringArray(forKey: orderKey) ?? []
+        let known = modules.map(\.id)
+        order = saved.filter(known.contains) + known.filter { !saved.contains($0) }
+        applyLayout()
     }
 
-    // MARK: - Menu bar display (horizontal: down on the left, up on the right)
-    private func render(down: Double, up: Double) {
-        lastDown = down
-        lastUp = up
-        guard let button = statusItem.button else { return }
-        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        let color = NSColor.labelColor   // single colour for arrows and numbers
+    func module(withID id: String) -> BarModule? {
+        modules.first { $0.id == id }
+    }
 
-        let line = NSMutableAttributedString()
-        func append(_ string: String) {
-            line.append(NSAttributedString(string: string,
-                attributes: [.font: font, .foregroundColor: color]))
+    // MARK: - Enablement (persisted; default on)
+
+    private func enabledKey(_ id: String) -> String { "module.\(id).enabled" }
+
+    func isEnabled(_ module: BarModule) -> Bool { isEnabled(id: module.id) }
+
+    func isEnabled(id: String) -> Bool {
+        UserDefaults.standard.object(forKey: enabledKey(id)) as? Bool ?? true
+    }
+
+    func setEnabled(_ id: String, _ enabled: Bool) {
+        objectWillChange.send()
+        UserDefaults.standard.set(enabled, forKey: enabledKey(id))
+        applyLayout()
+    }
+
+    // MARK: - Ordering
+
+    func moveModule(fromOffsets: IndexSet, toOffset: Int) {
+        objectWillChange.send()
+        order.move(fromOffsets: fromOffsets, toOffset: toOffset)
+        UserDefaults.standard.set(order, forKey: orderKey)
+        applyLayout()
+    }
+
+    func moveModule(id: String, up: Bool) {
+        guard let index = order.firstIndex(of: id) else { return }
+        let target = up ? index - 1 : index + 1
+        guard order.indices.contains(target) else { return }
+        objectWillChange.send()
+        order.swapAt(index, target)
+        UserDefaults.standard.set(order, forKey: orderKey)
+        applyLayout()
+    }
+
+    // MARK: - Layout
+
+    /// Rebuilds every status item so the bar matches `order` and enablement.
+    func applyLayout() {
+        for module in modules where startedIDs.contains(module.id) { module.stop() }
+        startedIDs.removeAll()
+        clearSavedStatusPositions()
+        // macOS places the most recently created status item leftmost, so we
+        // create in reverse: order[0] is created last and ends up leftmost.
+        for id in order.reversed() {
+            guard let module = module(withID: id), isEnabled(id: id) else { continue }
+            module.start(manager: self)
+            startedIDs.insert(id)
         }
+        updateFallbackItem()
+        for module in modules where startedIDs.contains(module.id) { module.menusChanged() }
+    }
 
-        switch displayMode {
-        case "down":
-            append(SpeedFormatter.padded(down) + " ↓")
-        case "up":
-            append(SpeedFormatter.padded(up) + " ↑")
-        default:
-            append(SpeedFormatter.padded(down) + " ↓")
-            append("   " + SpeedFormatter.padded(up) + " ↑")
+    /// Drop pinned positions (from Cmd-dragging) so creation order wins.
+    private func clearSavedStatusPositions() {
+        let defaults = UserDefaults.standard
+        for key in defaults.dictionaryRepresentation().keys
+        where key.hasPrefix("NSStatusItem Preferred Position") {
+            defaults.removeObject(forKey: key)
         }
-        button.attributedTitle = line
     }
 
-    // MARK: - Timer
-    private func startTimer() {
-        timer?.invalidate()
-        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
-            self?.update()
+    // MARK: - Shared settings menu
+
+    /// Fresh items every call — NSMenuItems cannot be shared between menus.
+    func sharedMenuItems() -> [NSMenuItem] {
+        var items: [NSMenuItem] = []
+
+        let settings = NSMenuItem(title: "Settings…",
+                                  action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = self
+        items.append(settings)
+
+        let modulesMenu = NSMenu()
+        for module in modules {
+            let item = NSMenuItem(title: module.title,
+                                  action: #selector(toggleModule(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = module.id
+            item.state = isEnabled(module) ? .on : .off
+            modulesMenu.addItem(item)
         }
-        RunLoop.main.add(t, forMode: .common)   // keep ticking while the menu is open
-        timer = t
-    }
-
-    private func update() {
-        guard let rate = monitor.tick() else { return }
-        render(down: rate.downBytesPerSec, up: rate.upBytesPerSec)
-    }
-
-    // MARK: - Menu
-    private func buildMenu() {
-        let menu = NSMenu()
+        let modulesItem = NSMenuItem(title: "Modules", action: nil, keyEquivalent: "")
+        modulesItem.submenu = modulesMenu
+        items.append(modulesItem)
 
         let login = NSMenuItem(title: "Start at Login",
                                action: #selector(toggleLogin(_:)), keyEquivalent: "")
         login.target = self
         login.state = LoginItem.isEnabled ? .on : .off
-        menu.addItem(login)
+        items.append(login)
 
-        menu.addItem(.separator())
+        items.append(.separator())
 
-        let showHeader = NSMenuItem(title: "Show", action: nil, keyEquivalent: "")
-        menu.addItem(showHeader)   // no action => disabled section label
-
-        let modes: [(String, String)] = [
-            ("Download only", "down"),
-            ("Upload only", "up"),
-            ("Both", "both"),
-        ]
-        for (title, value) in modes {
-            let item = NSMenuItem(title: title,
-                                  action: #selector(selectDisplayMode(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = value
-            item.state = (value == displayMode) ? .on : .off
-            menu.addItem(item)
-        }
-
-        menu.addItem(.separator())
-
-        let header = NSMenuItem(title: "Update Interval", action: nil, keyEquivalent: "")
-        menu.addItem(header)   // no action => disabled section label
-
-        for value in intervals {
-            let item = NSMenuItem(title: "\(Int(value))s",
-                                  action: #selector(selectInterval(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = value
-            item.state = (value == interval) ? .on : .off
-            menu.addItem(item)
-        }
-
-        menu.addItem(.separator())
-
-        let speedTest = NSMenuItem(title: "Speed Test…",
-                                   action: #selector(openSpeedTest), keyEquivalent: "")
-        speedTest.target = self
-        menu.addItem(speedTest)
-
-        let activity = NSMenuItem(title: "Open Activity Monitor",
-                                  action: #selector(openActivityMonitor), keyEquivalent: "")
-        activity.target = self
-        menu.addItem(activity)
-
-        menu.addItem(.separator())
-
-        let quit = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit Mac Speed", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
-        menu.addItem(quit)
+        items.append(quit)
 
-        statusItem.menu = menu
+        return items
+    }
+
+    func sharedMenu() -> NSMenu {
+        let menu = NSMenu()
+        sharedMenuItems().forEach(menu.addItem)
+        return menu
     }
 
     // MARK: - Actions
+
+    @objc func openSettings() {
+        if settingsWC == nil { settingsWC = SettingsWindowController(manager: self) }
+        settingsWC?.present()
+    }
+
+    @objc private func toggleModule(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        setEnabled(id, !isEnabled(id: id))
+    }
+
     @objc private func toggleLogin(_ sender: NSMenuItem) {
         LoginItem.setEnabled(!LoginItem.isEnabled)
         sender.state = LoginItem.isEnabled ? .on : .off
     }
 
-    @objc private func selectDisplayMode(_ sender: NSMenuItem) {
-        guard let value = sender.representedObject as? String else { return }
-        displayMode = value
-        if let items = statusItem.menu?.items {
-            for item in items where item.representedObject is String {
-                item.state = ((item.representedObject as? String) == value) ? .on : .off
-            }
+    @objc private func quit() { NSApp.terminate(nil) }
+
+    // MARK: - Fallback icon so the app stays reachable with all modules off
+
+    private func updateFallbackItem() {
+        if !startedIDs.isEmpty {
+            if let item = fallbackItem { NSStatusBar.system.removeStatusItem(item) }
+            fallbackItem = nil
+            return
         }
-        render(down: lastDown, up: lastUp)   // redraw immediately
-    }
-
-    @objc private func selectInterval(_ sender: NSMenuItem) {
-        guard let value = sender.representedObject as? Double else { return }
-        interval = value
-        if let items = statusItem.menu?.items {
-            for item in items where item.representedObject is Double {
-                item.state = ((item.representedObject as? Double) == value) ? .on : .off
-            }
+        if fallbackItem == nil {
+            let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+            item.button?.image = NSImage(systemSymbolName: "slider.horizontal.3",
+                                         accessibilityDescription: "Mac Speed")
+            fallbackItem = item
         }
-        monitor.reset()
-        _ = monitor.tick()      // re-prime so the next reading is a clean delta
-        startTimer()
-    }
-
-    @objc private func openSpeedTest() {
-        if speedTestWC == nil { speedTestWC = SpeedTestWindowController() }
-        speedTestWC?.present()
-    }
-
-    @objc private func openActivityMonitor() {
-        let url = URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app")
-        NSWorkspace.shared.openApplication(at: url,
-                                           configuration: NSWorkspace.OpenConfiguration(),
-                                           completionHandler: nil)
-    }
-
-    @objc private func quit() {
-        NSApplication.shared.terminate(nil)
+        fallbackItem?.menu = sharedMenu()
     }
 }
