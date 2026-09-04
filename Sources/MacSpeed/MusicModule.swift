@@ -26,21 +26,9 @@ final class MusicModule: BarModule {
         self.barView = barView
         self.statusItem = statusItem
 
-        barView.onPlayPause = { [weak self] in
-            guard let self, let state = self.currentState else { return }
-            // Flip the icon immediately; the next poll confirms the real state.
-            self.barView?.setPlaying(!state.isPlaying)
-            self.bridge.playPause()
-            self.pollSoon()
-        }
-        barView.onPrevious = { [weak self] in
-            self?.bridge.previousTrack()
-            self?.pollSoon()
-        }
-        barView.onNext = { [weak self] in
-            self?.bridge.nextTrack()
-            self?.pollSoon()
-        }
+        barView.onPlayPause = { [weak self] in self?.togglePlayPause() }
+        barView.onPrevious = { [weak self] in self?.previousTrack() }
+        barView.onNext = { [weak self] in self?.nextTrack() }
         barView.onOpenPlayer = { [weak self] in
             guard let self, let bundleID = self.currentState?.sourceBundleID else { return }
             NSWorkspace.shared.runningApplications
@@ -65,6 +53,38 @@ final class MusicModule: BarModule {
     }
 
     func menusChanged() {}   // menu is built fresh on each right-click
+
+    // MARK: - Actions (also used by the global media hotkey)
+
+    /// Toggles playback regardless of current state.
+    func togglePlayPause() {
+        // Flip the icon immediately; the next poll confirms the real state.
+        if let state = currentState { barView?.setPlaying(!state.isPlaying) }
+        bridge.playPause()
+        pollSoon()
+    }
+
+    /// Starts playback only if currently paused (no-op if already playing or state unknown).
+    func play() {
+        guard let state = currentState, !state.isPlaying else { return }
+        togglePlayPause()
+    }
+
+    /// Pauses playback only if currently playing (no-op if already paused or state unknown).
+    func pause() {
+        guard let state = currentState, state.isPlaying else { return }
+        togglePlayPause()
+    }
+
+    func nextTrack() {
+        bridge.nextTrack()
+        pollSoon()
+    }
+
+    func previousTrack() {
+        bridge.previousTrack()
+        pollSoon()
+    }
 
     private func poll() {
         bridge.poll { [weak self] state, artwork in
