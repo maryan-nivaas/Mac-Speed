@@ -5,34 +5,54 @@ struct SettingsView: View {
     @ObservedObject var manager: AppDelegate
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Menu Bar Modules")
-                    .font(.title3.bold())
-                Text("Switch features on or off and reorder them. The top module appears leftmost in the menu bar.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            .padding([.top, .horizontal], 20)
-            .padding(.bottom, 8)
-
-            List {
-                ForEach(manager.order, id: \.self) { id in
-                    if let module = manager.module(withID: id) {
-                        row(for: module)
-                    }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Menu Bar Modules")
+                        .font(.title3.bold())
+                    Text("Switch features on or off and reorder them. The top module appears leftmost in the menu bar.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
-                .onMove { manager.moveModule(fromOffsets: $0, toOffset: $1) }
-            }
-            .scrollContentBackground(.hidden)
+                .padding([.top, .horizontal], 20)
+                .padding(.bottom, 8)
 
-            Text("Tip: drag a row, or use the arrows, to change its position in the bar.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .padding([.horizontal, .bottom], 20)
-                .padding(.top, 4)
+                List {
+                    ForEach(manager.order, id: \.self) { id in
+                        if let module = manager.module(withID: id) {
+                            row(for: module)
+                        }
+                    }
+                    .onMove { manager.moveModule(fromOffsets: $0, toOffset: $1) }
+                }
+                .frame(height: 220)
+                .scrollContentBackground(.hidden)
+
+                Text("Tip: drag a row, or use the arrows, to change its position in the bar.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .padding([.horizontal, .bottom], 12)
+                    .padding(.top, 4)
+
+                Divider().padding(.horizontal, 20)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Media Hotkey")
+                        .font(.title3.bold())
+                    Text("Pick any key. Click it once, twice, or more to trigger a media action, or hold it down for another.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 8)
+
+                HotkeySettingsView(manager: manager)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
+            }
         }
-        .frame(width: 480, height: 340)
+        .frame(width: 480, height: 620)
     }
 
     private func row(for module: BarModule) -> some View {

@@ -53,7 +53,9 @@ final class MediaControlBridge: MusicBridge {
             var artwork: NSImage?
             if let data = self.run(["get"]),
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let title = json["title"] as? String, !title.isEmpty {
+               json["bundleIdentifier"] != nil {
+                let rawTitle = json["title"] as? String ?? ""
+                let title = rawTitle.isEmpty ? "Now Playing" : rawTitle
                 state = BarState(
                     isPlaying: json["playing"] as? Bool ?? false,
                     trackName: title,

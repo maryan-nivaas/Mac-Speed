@@ -24,6 +24,8 @@
     <true/>
     <key>NSAppleEventsUsageDescription</key>
     <string>The Music Controls module can control Spotify and Apple Music playback.</string>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>Mac Speed needs Accessibility access to detect your chosen media hotkey system-wide.</string>
     <key>NSHumanReadableCopyright</key>
     <string>Built locally. Reads local interface counters only; no network access except during a manual speed test.</string>
 </dict>

@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var startedIDs: Set<String> = []
     private var fallbackItem: NSStatusItem?
     private var settingsWC: SettingsWindowController?
+    let hotkeyManager = HotkeyManager()
 
     private let orderKey = "module.order"
 
@@ -30,6 +31,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         let known = modules.map(\.id)
         order = saved.filter(known.contains) + known.filter { !saved.contains($0) }
         applyLayout()
+
+        hotkeyManager.performAction = { [weak self] action in self?.perform(hotkeyAction: action) }
+        hotkeyManager.applyCurrentConfig()
+    }
+
+    private func perform(hotkeyAction: HotkeyAction) {
+        guard let music = module(withID: "music") as? MusicModule else { return }
+        switch hotkeyAction {
+        case .none: break
+        case .play: music.play()
+        case .pause: music.pause()
+        case .playPause: music.togglePlayPause()
+        case .mute: SystemAudio.toggleMute()
+        case .next: music.nextTrack()
+        case .previous: music.previousTrack()
+        }
     }
 
     func module(withID id: String) -> BarModule? {
