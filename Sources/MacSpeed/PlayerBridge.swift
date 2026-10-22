@@ -135,4 +135,9 @@ final class PlayerBridge: MusicBridge {
     func playPause() { command("playpause") }
     func nextTrack() { command("next track") }
     func previousTrack() { command("previous track") }
+
+    // Relative and run serially on `queue`, so rapid taps stack on their own.
+    func seek(by seconds: Double) {
+        command("set player position to (player position + (\(seconds)))")
+    }
 }

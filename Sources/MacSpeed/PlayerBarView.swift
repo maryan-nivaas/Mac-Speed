@@ -80,14 +80,17 @@ final class BarButton: NSButton {
     }
 }
 
-/// The 200px strip that lives inside the status item:
-/// [artwork 20][marquee 96][play/pause 20] 6px [previous 20] 6px [next 20]
+/// The 252px strip that lives inside the status item:
+/// [artwork 20][marquee 96][skip back 20][play/pause 20][skip forward 20][previous 20][next 20]
+/// with 6px between buttons.
 final class PlayerBarView: NSView {
-    static let totalWidth: CGFloat = 200
+    static let totalWidth: CGFloat = 252
 
     var onPlayPause: (() -> Void)?
     var onPrevious: (() -> Void)?
     var onNext: (() -> Void)?
+    var onSkipBackward: (() -> Void)?
+    var onSkipForward: (() -> Void)?
     var onOpenPlayer: (() -> Void)?
     var contextMenuProvider: (() -> NSMenu?)?
 
@@ -96,6 +99,13 @@ final class PlayerBarView: NSView {
     private let playPauseButton = BarButton()
     private let previousButton = BarButton()
     private let nextButton = BarButton()
+    private let skipBackwardButton = BarButton()
+    private let skipForwardButton = BarButton()
+    private var allButtons: [NSButton] {
+        [skipBackwardButton, playPauseButton, skipForwardButton, previousButton, nextButton]
+    }
+    private var trackName = ""
+    private var feedbackWorkItem: DispatchWorkItem?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -111,9 +121,11 @@ final class PlayerBarView: NSView {
         marquee.frame = NSRect(x: 26, y: 0, width: 96, height: h)
         addSubview(marquee)
 
-        configure(playPauseButton, symbol: "play.fill", x: 126, height: h, action: #selector(playPauseTapped))
-        configure(previousButton, symbol: "backward.end.fill", x: 152, height: h, action: #selector(previousTapped))
-        configure(nextButton, symbol: "forward.end.fill", x: 178, height: h, action: #selector(nextTapped))
+        configure(skipBackwardButton, symbol: "gobackward", x: 126, height: h, action: #selector(skipBackwardTapped))
+        configure(playPauseButton, symbol: "play.fill", x: 152, height: h, action: #selector(playPauseTapped))
+        configure(skipForwardButton, symbol: "goforward", x: 178, height: h, action: #selector(skipForwardTapped))
+        configure(previousButton, symbol: "backward.end.fill", x: 204, height: h, action: #selector(previousTapped))
+        configure(nextButton, symbol: "forward.end.fill", x: 230, height: h, action: #selector(nextTapped))
 
         showIdle()
     }
@@ -138,33 +150,82 @@ final class PlayerBarView: NSView {
         return image
     }
 
+    /// Circular-arrow icon with the interval drawn inside. Drawn ourselves because
+    /// SF Symbols only ships numbered variants for some values (no 20 or 40).
+    private static func skipImage(forward: Bool, seconds: Int) -> NSImage? {
+        guard let arrow = symbolImage(forward ? "goforward" : "gobackward") else { return nil }
+        let size = arrow.size
+        let image = NSImage(size: size, flipped: false) { rect in
+            arrow.draw(in: rect)
+            let label = "\(seconds)" as NSString
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: seconds >= 10 ? 5.5 : 7.5, weight: .bold),
+                .foregroundColor: NSColor.black,
+            ]
+            let textSize = label.size(withAttributes: attributes)
+            // The arc's centre sits slightly below the image centre (arrowhead is on top).
+            label.draw(at: NSPoint(x: (rect.width - textSize.width) / 2,
+                                   y: (rect.height - textSize.height) / 2 - 1),
+                       withAttributes: attributes)
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
+    func setSkipInterval(_ seconds: Int) {
+        skipBackwardButton.image = Self.skipImage(forward: false, seconds: seconds)
+        skipForwardButton.image = Self.skipImage(forward: true, seconds: seconds)
+        skipBackwardButton.toolTip = "Back \(seconds)s (tap again to go further)"
+        skipForwardButton.toolTip = "Forward \(seconds)s (tap again to go further)"
+    }
+
+    /// Briefly replaces the title with e.g. "+20s", then restores it.
+    func showSkipFeedback(_ text: String) {
+        feedbackWorkItem?.cancel()
+        marquee.text = text
+        let restore = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.feedbackWorkItem = nil
+            self.marquee.text = self.trackName
+        }
+        feedbackWorkItem = restore
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: restore)
+    }
+
     func setPlaying(_ isPlaying: Bool) {
         playPauseButton.image = Self.symbolImage(isPlaying ? "pause.fill" : "play.fill")
     }
 
     func update(isPlaying: Bool, trackName: String, artwork: NSImage?) {
         playPauseButton.image = Self.symbolImage(isPlaying ? "pause.fill" : "play.fill")
-        marquee.text = String(trackName.prefix(15))
+        self.trackName = String(trackName.prefix(15))
+        if feedbackWorkItem == nil { marquee.text = self.trackName }
         if let artwork {
             artworkView.image = artwork
         } else {
             artworkView.image = Self.symbolImage("music.note")
         }
-        [playPauseButton, previousButton, nextButton].forEach { $0.isEnabled = true }
+        allButtons.forEach { $0.isEnabled = true }
         alphaValue = 1
     }
 
     func showIdle() {
         playPauseButton.image = Self.symbolImage("play.fill")
+        trackName = ""
+        feedbackWorkItem?.cancel()
+        feedbackWorkItem = nil
         marquee.text = ""
         artworkView.image = Self.symbolImage("music.note")
-        [playPauseButton, previousButton, nextButton].forEach { $0.isEnabled = false }
+        allButtons.forEach { $0.isEnabled = false }
         alphaValue = 0.5
     }
 
     @objc private func playPauseTapped() { onPlayPause?() }
     @objc private func previousTapped() { onPrevious?() }
     @objc private func nextTapped() { onNext?() }
+    @objc private func skipBackwardTapped() { onSkipBackward?() }
+    @objc private func skipForwardTapped() { onSkipForward?() }
 
     // Clicks on the artwork / title (not on a button) bring the player app forward.
     override func mouseUp(with event: NSEvent) {

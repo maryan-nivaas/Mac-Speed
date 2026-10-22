@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var manager: AppDelegate
+    @ObservedObject private var musicSettings = MusicSettings.shared
 
     var body: some View {
         ScrollView {
@@ -33,6 +34,26 @@ struct SettingsView: View {
                     .foregroundStyle(.tertiary)
                     .padding([.horizontal, .bottom], 12)
                     .padding(.top, 4)
+
+                Divider().padding(.horizontal, 20)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Skip Interval")
+                        .font(.title3.bold())
+                    Text("How far the skip back / forward buttons jump. Tap again quickly to go further: with 10s, a double tap jumps 20s.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Picker("", selection: $musicSettings.skipSeconds) {
+                        ForEach(MusicSettings.skipIntervals, id: \.self) { seconds in
+                            Text("\(seconds)s").tag(seconds)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
 
                 Divider().padding(.horizontal, 20)
 

@@ -11,6 +11,9 @@ protocol MusicBridge: AnyObject {
     func playPause()
     func nextTrack()
     func previousTrack()
+    /// Moves the playhead by `seconds` (negative = back). Calls arriving in quick
+    /// succession stack, so two taps of +10 land 20s ahead.
+    func seek(by seconds: Double)
 }
 
 /// System-wide now-playing via the `media-control` CLI (ungive/media-control),
@@ -20,6 +23,10 @@ final class MediaControlBridge: MusicBridge {
     private let queue = DispatchQueue(label: "macspeed.mediacontrol")
     private let binaryPath: String
     private var artworkCache: (key: String, image: NSImage)?
+    /// Where the last seek landed. Rapid follow-up taps build on this instead of
+    /// re-reading the player, which may not have reported the new position yet.
+    private var lastSeek: (target: Double, at: Date)?
+    private let seekStackWindow: TimeInterval = 1.5
 
     static func ifAvailable() -> MediaControlBridge? {
         let candidates = ["/opt/homebrew/bin/media-control", "/usr/local/bin/media-control"]
@@ -82,4 +89,25 @@ final class MediaControlBridge: MusicBridge {
     func playPause() { command("toggle-play-pause") }
     func nextTrack() { command("next-track") }
     func previousTrack() { command("previous-track") }
+
+    func seek(by seconds: Double) {
+        queue.async {
+            guard let data = self.run(["get", "--now"]),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let elapsed = json["elapsedTime"] as? Double
+            else { return }
+            let base: Double
+            if let last = self.lastSeek, Date().timeIntervalSince(last.at) < self.seekStackWindow {
+                base = last.target
+            } else {
+                base = elapsed
+            }
+            var target = max(0, base + seconds)
+            if let duration = json["duration"] as? Double, duration > 0 {
+                target = min(target, max(0, duration - 1))
+            }
+            _ = self.run(["seek", String(format: "%.3f", target)])
+            self.lastSeek = (target, Date())
+        }
+    }
 }

@@ -34,7 +34,7 @@ description; the top module appears leftmost in the bar):
 
 - **Network Speed** — live download/upload readout with an on-demand speed test.
 - **Music Controls** — a compact now-playing strip: album art, scrolling track name,
-  and single-click play/pause, previous and next. No popover, no second click — and it
+  and single-click play/pause, skip back/forward, previous and next. No popover, no second click — and it
   works with whatever macOS itself sees as "Now Playing", including browser tabs
   (YouTube, Spotify Web), Spotify and Apple Music.
 
@@ -49,6 +49,10 @@ Settings reachable. More modules are planned; each is one small Swift class.
 - **Music controls, one click** — album art, a marquee track name, and play/pause /
   previous / next buttons directly in the menu bar. Controls the system-wide
   Now Playing source: browser tabs, Spotify, Apple Music, anything.
+- **YouTube-style skip** — skip back / forward buttons either side of play/pause.
+  Choose 5, 10, 15, 20, 30 or 40 seconds (Settings or right-click → Skip Interval);
+  tap again quickly to jump further — with 10s, a double tap jumps 20s, a triple 30s.
+  Also bindable to a media hotkey.
 - **Live menu bar readout** — download and upload speed shown horizontally, with
   monospaced digits so the numbers stay aligned and never jitter.
 - **Pick what to show** — Download only, Upload only, or Both.
@@ -131,8 +135,8 @@ and ad-hoc signs it.
 - **Speed Test…** — opens a window that measures download, then upload, live.
 - **Open Activity Monitor** — jump to Activity Monitor to investigate traffic.
 
-**Music Controls** — the strip itself is the UI: click play/pause, previous or next
-directly; click the artwork or track name to bring the player app forward; right-click
+**Music Controls** — the strip itself is the UI: click skip back, play/pause, skip
+forward, previous or next directly; click the artwork or track name to bring the player app forward; right-click
 for the settings menu.
 
 **Every menu** also carries the shared section: **Settings…** (toggle and reorder

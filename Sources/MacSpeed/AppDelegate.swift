@@ -46,6 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         case .mute: SystemAudio.toggleMute()
         case .next: music.nextTrack()
         case .previous: music.previousTrack()
+        case .skipForward: music.skipForward()
+        case .skipBackward: music.skipBackward()
         }
     }
 
