@@ -10,6 +10,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
     case mute
     case next
     case previous
+    case skipForward
+    case skipBackward
 
     var id: String { rawValue }
 
@@ -22,6 +24,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .mute: return "Mute"
         case .next: return "Next Track"
         case .previous: return "Previous Track"
+        case .skipForward: return "Skip Forward"
+        case .skipBackward: return "Skip Back"
         }
     }
 }
